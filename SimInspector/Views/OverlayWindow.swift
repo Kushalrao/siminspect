@@ -32,6 +32,12 @@ class OverlayWindow: NSWindow {
         setFrame(nsRect, display: true)
     }
 
+    /// Show element name label near the highlight.
+    func showLabel(_ text: String?) {
+        highlightView.labelText = text
+        highlightView.needsDisplay = true
+    }
+
     /// Highlight a specific element rect (in screen coordinates, top-left origin).
     func highlightRect(_ rect: CGRect?) {
         guard let screen = NSScreen.main else { return }
@@ -48,6 +54,7 @@ class OverlayWindow: NSWindow {
             highlightView.highlightRect = localRect
         } else {
             highlightView.highlightRect = nil
+            highlightView.labelText = nil
         }
         highlightView.needsDisplay = true
     }
@@ -67,6 +74,7 @@ class OverlayWindow: NSWindow {
 /// Custom view that draws highlight rectangles and tracks mouse.
 class HighlightView: NSView {
     var highlightRect: NSRect?
+    var labelText: String?
     var onMouseMoved: ((NSPoint) -> Void)?
     var onMouseClicked: ((NSPoint) -> Void)?
 
@@ -99,24 +107,28 @@ class HighlightView: NSView {
         path.lineWidth = 2
         path.stroke()
 
-        // Size label
+        // Element name + size label
         let sizeText = String(format: "%.0f × %.0f", rect.width, rect.height)
+        let displayText = if let labelText, !labelText.isEmpty {
+            "\(labelText)  \(sizeText)"
+        } else {
+            sizeText
+        }
         let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 10, weight: .medium),
+            .font: NSFont.systemFont(ofSize: 11, weight: .medium),
             .foregroundColor: NSColor.white,
-            .backgroundColor: NSColor.systemBlue.withAlphaComponent(0.9)
         ]
-        let textSize = sizeText.size(withAttributes: attrs)
+        let textSize = displayText.size(withAttributes: attrs)
         let textRect = NSRect(
             x: rect.origin.x,
-            y: rect.origin.y - textSize.height - 2,
-            width: textSize.width + 6,
-            height: textSize.height + 2
+            y: rect.origin.y - textSize.height - 4,
+            width: textSize.width + 8,
+            height: textSize.height + 4
         )
 
         NSColor.systemBlue.withAlphaComponent(0.9).setFill()
-        NSBezierPath(roundedRect: textRect, xRadius: 3, yRadius: 3).fill()
-        sizeText.draw(at: NSPoint(x: textRect.origin.x + 3, y: textRect.origin.y + 1), withAttributes: attrs)
+        NSBezierPath(roundedRect: textRect, xRadius: 4, yRadius: 4).fill()
+        displayText.draw(at: NSPoint(x: textRect.origin.x + 4, y: textRect.origin.y + 2), withAttributes: attrs)
     }
 
     override func mouseMoved(with event: NSEvent) {

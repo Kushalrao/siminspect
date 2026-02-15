@@ -16,6 +16,7 @@ struct MainView: View {
 
     // Overlay
     @State private var overlayWindow: OverlayWindow?
+    @State private var hoveredElement: ElementNode?
 
     var body: some View {
         NavigationSplitView {
@@ -82,13 +83,14 @@ struct MainView: View {
     // MARK: - Setup
 
     private func initialSetup() async {
-        // Check for idb-companion
+        // Check for idb
         if !idbService.isAvailable {
             showSetup = true
         }
 
-        // Discover simulators
+        // Discover simulators and start polling for new ones
         await simulatorService.refreshDevices()
+        simulatorService.startPolling()
 
         // Load hierarchy if we have a device
         if simulatorService.selectedDevice != nil {
@@ -133,16 +135,16 @@ struct MainView: View {
         // Position overlay over Simulator
         updateOverlayPosition()
 
-        // Set up mouse tracking
-        overlay.setMouseHandler { [self] screenPoint in
+        // Set up mouse tracking — local hit-testing, no async needed
+        overlay.setMouseHandler { screenPoint in
             Task { @MainActor in
-                await handleMouseMove(screenPoint)
+                self.handleMouseMove(screenPoint)
             }
         }
 
-        overlay.setClickHandler { [self] screenPoint in
+        overlay.setClickHandler { screenPoint in
             Task { @MainActor in
-                await handleMouseClick(screenPoint)
+                self.handleMouseClick(screenPoint)
             }
         }
 
@@ -168,9 +170,8 @@ struct MainView: View {
         overlayWindow?.updateFrame(to: frame)
     }
 
-    private func handleMouseMove(_ screenPoint: NSPoint) async {
-        guard let device = simulatorService.selectedDevice,
-              let contentRect = windowTracker.contentRect else { return }
+    private func handleMouseMove(_ screenPoint: NSPoint) {
+        guard let contentRect = windowTracker.contentRect else { return }
 
         // Convert screen point to top-left origin for the mapper
         guard let screen = NSScreen.main else { return }
@@ -182,46 +183,35 @@ struct MainView: View {
         let mapper = CoordinateMapper.autoDetect(contentRect: contentRect)
         guard let iosPoint = mapper.macScreenToiOS(topLeftPoint) else {
             overlayWindow?.highlightRect(nil)
+            hoveredElement = nil
             return
         }
 
-        do {
-            if let element = try await idbService.describePoint(
-                x: iosPoint.x, y: iosPoint.y, udid: device.udid
-            ) {
-                let screenRect = mapper.iOSFrameToScreen(element.frame.cgRect)
-                overlayWindow?.highlightRect(screenRect)
-            } else {
-                overlayWindow?.highlightRect(nil)
+        // Local hit-test against the cached element tree — instant, no IPC
+        var hit: ElementNode?
+        for root in elements {
+            if let found = root.hitTest(point: iosPoint) {
+                hit = found
+                break
             }
-        } catch {
+        }
+
+        if let hit {
+            let screenRect = mapper.iOSFrameToScreen(hit.frame.cgRect)
+            overlayWindow?.highlightRect(screenRect)
+            overlayWindow?.showLabel(hit.displayTitle)
+            hoveredElement = hit
+        } else {
             overlayWindow?.highlightRect(nil)
+            hoveredElement = nil
         }
     }
 
-    private func handleMouseClick(_ screenPoint: NSPoint) async {
-        guard let device = simulatorService.selectedDevice,
-              let contentRect = windowTracker.contentRect else { return }
-
-        guard let screen = NSScreen.main else { return }
-        let topLeftPoint = CGPoint(
-            x: screenPoint.x,
-            y: screen.frame.height - screenPoint.y
-        )
-
-        let mapper = CoordinateMapper.autoDetect(contentRect: contentRect)
-        guard let iosPoint = mapper.macScreenToiOS(topLeftPoint) else { return }
-
-        do {
-            if let element = try await idbService.describePoint(
-                x: iosPoint.x, y: iosPoint.y, udid: device.udid
-            ) {
-                selectedElement = element
-                // Find and select in tree
-                isInspectMode = false
-            }
-        } catch {
-            errorMessage = error.localizedDescription
+    private func handleMouseClick(_ screenPoint: NSPoint) {
+        // Just select whatever is currently hovered — already computed by handleMouseMove
+        if let element = hoveredElement {
+            selectedElement = element
+            isInspectMode = false
         }
     }
 }

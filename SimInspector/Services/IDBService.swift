@@ -2,14 +2,25 @@ import Foundation
 import AppKit
 
 /// Wraps the idb CLI (Python client) + idb_companion for querying iOS Simulator UI hierarchy.
+/// Manages companion server lifecycle — starts it before idb commands, stops it on cleanup.
 @MainActor
 final class IDBService: ObservableObject {
     @Published var idbCliPath: String?
     @Published var companionPath: String?
     @Published var isAvailable: Bool = false
 
+    /// Currently running companion processes, keyed by device UDID.
+    private var companions: [String: Process] = [:]
+
     init() {
         resolvePaths()
+    }
+
+    deinit {
+        // Kill all companion processes
+        for (_, process) in companions {
+            process.terminate()
+        }
     }
 
     /// Find both idb (Python CLI) and idb_companion on the system.
@@ -67,10 +78,85 @@ final class IDBService: ObservableObject {
         FileManager.default.homeDirectoryForCurrentUser.path
     }
 
+    // MARK: - Companion Server Management
+
+    /// Socket path for a given device.
+    private func socketPath(for udid: String) -> String {
+        "/tmp/idb/\(udid)_companion.sock"
+    }
+
+    /// Ensure the companion server is running for a device.
+    /// If it's already running (socket exists and process alive), do nothing.
+    func ensureCompanion(udid: String) async throws {
+        // Check if our managed companion is still running
+        if let process = companions[udid], process.isRunning {
+            let sock = socketPath(for: udid)
+            if FileManager.default.fileExists(atPath: sock) {
+                return // Already running
+            }
+        }
+
+        // Check if a socket already exists (started externally or from a previous run)
+        let sock = socketPath(for: udid)
+        if FileManager.default.fileExists(atPath: sock) {
+            // Verify it's connectable by just leaving it — idb will fail if it's stale
+            // Clean up stale socket
+            try? FileManager.default.removeItem(atPath: sock)
+        }
+
+        guard let companion = companionPath else {
+            throw IDBError.notInstalled
+        }
+
+        // Create /tmp/idb directory
+        try FileManager.default.createDirectory(atPath: "/tmp/idb", withIntermediateDirectories: true)
+
+        // Start companion as a long-running background process
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: companion)
+        process.arguments = ["--udid", udid, "--grpc-domain-sock", sock]
+
+        // Set DYLD_FRAMEWORK_PATH for the companion's bundled frameworks
+        let companionDir = (companion as NSString).deletingLastPathComponent
+        let frameworksDir = ((companionDir as NSString).deletingLastPathComponent as NSString)
+            .appendingPathComponent("Frameworks")
+
+        var env = ProcessInfo.processInfo.environment
+        env["DYLD_FRAMEWORK_PATH"] = frameworksDir
+        env["PATH"] = ProcessRunner.richPATH
+        process.environment = env
+
+        // Redirect output so it doesn't interfere
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+
+        try process.run()
+        companions[udid] = process
+
+        // Wait for the socket to appear (companion needs a moment to start)
+        for _ in 0..<30 {
+            try await Task.sleep(nanoseconds: 200_000_000) // 200ms
+            if FileManager.default.fileExists(atPath: sock) {
+                return
+            }
+        }
+
+        throw IDBError.commandFailed("Companion server failed to start — socket not created after 6 seconds")
+    }
+
+    /// Stop the companion for a device.
+    func stopCompanion(udid: String) {
+        if let process = companions.removeValue(forKey: udid), process.isRunning {
+            process.terminate()
+        }
+        try? FileManager.default.removeItem(atPath: socketPath(for: udid))
+    }
+
     // MARK: - Accessibility Hierarchy
 
     /// Fetch the full accessibility tree for a simulator.
     func describeAll(udid: String) async throws -> [ElementNode] {
+        try await ensureCompanion(udid: udid)
         let output = try await runIDB(["ui", "describe-all", "--udid", udid, "--json", "--nested"])
 
         guard let data = output.data(using: .utf8) else {
@@ -82,6 +168,7 @@ final class IDBService: ObservableObject {
 
     /// Hit-test at a specific iOS point.
     func describePoint(x: Double, y: Double, udid: String) async throws -> ElementNode? {
+        try await ensureCompanion(udid: udid)
         let output = try await runIDB([
             "ui", "describe-point",
             String(Int(x)), String(Int(y)),
@@ -98,6 +185,8 @@ final class IDBService: ObservableObject {
 
     /// Capture a screenshot from the simulator.
     func screenshot(udid: String) async throws -> NSImage {
+        try await ensureCompanion(udid: udid)
+
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("siminspector_\(UUID().uuidString).png")
 
@@ -114,26 +203,17 @@ final class IDBService: ObservableObject {
 
     // MARK: - CLI Runner
 
-    /// Run an idb CLI command, passing --companion-path so idb can spawn/find the companion.
+    /// Run an idb CLI command. Companion must already be running.
     private func runIDB(_ arguments: [String]) async throws -> String {
-        guard let cli = idbCliPath, let companion = companionPath else {
+        guard let cli = idbCliPath else {
             throw IDBError.notInstalled
         }
 
-        // Set DYLD_FRAMEWORK_PATH so the companion can find its bundled Frameworks
-        let companionDir = (companion as NSString).deletingLastPathComponent
-        let frameworksDir = ((companionDir as NSString).deletingLastPathComponent as NSString)
-            .appendingPathComponent("Frameworks")
-
-        let env = [
-            "DYLD_FRAMEWORK_PATH": frameworksDir,
-        ]
-
-        let fullArgs = ["--companion-path", companion] + arguments
-        let output = try await ProcessRunner.run(cli, arguments: fullArgs, environment: env)
+        let output = try await ProcessRunner.run(cli, arguments: arguments)
 
         guard output.exitCode == 0 else {
-            throw IDBError.commandFailed(output.stderr.isEmpty ? output.stdout : output.stderr)
+            let msg = output.stderr.isEmpty ? output.stdout : output.stderr
+            throw IDBError.commandFailed(msg)
         }
 
         return output.stdout
@@ -143,7 +223,6 @@ final class IDBService: ObservableObject {
 
     /// Install idb-companion via Homebrew and idb CLI via pip.
     func installViaHomebrew() async throws -> String {
-        // Install idb_companion
         let brewPath = ProcessRunner.which("brew") ?? "/opt/homebrew/bin/brew"
         guard FileManager.default.isExecutableFile(atPath: brewPath) else {
             throw IDBError.homebrewNotFound

@@ -69,6 +69,22 @@ final class ElementNode: Identifiable, ObservableObject {
     var flattened: [ElementNode] {
         [self] + children.flatMap { $0.flattened }
     }
+
+    /// Local hit-test: find the deepest (most specific) element containing the given iOS point.
+    /// Returns nil if the point is outside this node's frame.
+    func hitTest(point: CGPoint) -> ElementNode? {
+        guard frame.cgRect.contains(point) else { return nil }
+
+        // Check children in reverse order (last child is on top visually)
+        for child in children.reversed() {
+            if let hit = child.hitTest(point: point) {
+                return hit
+            }
+        }
+
+        // No child contains the point — this node is the hit
+        return self
+    }
 }
 
 extension ElementNode: Hashable {

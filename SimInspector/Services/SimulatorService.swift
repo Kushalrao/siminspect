@@ -8,9 +8,25 @@ final class SimulatorService: ObservableObject {
     @Published var error: String?
 
     private let xcrunPath: String
+    private var pollTimer: Timer?
 
     init() {
         self.xcrunPath = ProcessRunner.which("xcrun") ?? "/usr/bin/xcrun"
+    }
+
+    /// Start polling for simulator changes every few seconds.
+    func startPolling(interval: TimeInterval = 3) {
+        stopPolling()
+        pollTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                await self?.refreshDevices()
+            }
+        }
+    }
+
+    func stopPolling() {
+        pollTimer?.invalidate()
+        pollTimer = nil
     }
 
     /// Refresh the list of booted simulators.
