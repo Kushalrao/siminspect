@@ -34,10 +34,9 @@ struct ElementTreeView: View {
                     description: Text("No UI elements found. Make sure an app is running in the Simulator.")
                 )
             } else {
-                List(selection: $selectedElement) {
+                List {
                     ForEach(filteredElements) { node in
-                        ElementTreeRow(node: node, isSelected: selectedElement?.id == node.id)
-                            .tag(node)
+                        ElementTreeRow(node: node, selectedElement: $selectedElement)
                     }
                     .listRowSeparator(.hidden)
                 }
@@ -86,43 +85,64 @@ struct ElementTreeView: View {
 /// A single row in the element tree.
 struct ElementTreeRow: View {
     let node: ElementNode
-    let isSelected: Bool
+    @Binding var selectedElement: ElementNode?
+
+    private var isSelected: Bool {
+        selectedElement?.id == node.id
+    }
 
     var body: some View {
-        DisclosureGroup {
-            ForEach(node.children) { child in
-                ElementTreeRow(node: child, isSelected: false)
-            }
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: iconForType(node.type))
-                    .foregroundColor(colorForType(node.type))
-                    .frame(width: 16)
-
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(node.type)
-                        .font(.system(.body, design: .monospaced))
-                        .fontWeight(.medium)
-
-                    if let label = node.label, !label.isEmpty {
-                        Text("\"\(label)\"")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    } else if let identifier = node.identifier, !identifier.isEmpty {
-                        Text(identifier)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
+        if node.children.isEmpty {
+            rowLabel
+                .contentShape(Rectangle())
+                .onTapGesture { selectedElement = node }
+        } else {
+            DisclosureGroup {
+                ForEach(node.children) { child in
+                    ElementTreeRow(node: child, selectedElement: $selectedElement)
                 }
-
-                Spacer()
-
-                Text(node.frame.description)
-                    .font(.system(.caption2, design: .monospaced))
-                    .foregroundColor(.secondary.opacity(0.7))
+            } label: {
+                rowLabel
+                    .contentShape(Rectangle())
+                    .onTapGesture { selectedElement = node }
             }
-            .padding(.vertical, 2)
         }
+    }
+
+    private var rowLabel: some View {
+        HStack(spacing: 6) {
+            Image(systemName: iconForType(node.type))
+                .foregroundColor(colorForType(node.type))
+                .frame(width: 16)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(node.type)
+                    .font(.system(.body, design: .monospaced))
+                    .fontWeight(.medium)
+
+                if let label = node.label, !label.isEmpty {
+                    Text("\"\(label)\"")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else if let identifier = node.identifier, !identifier.isEmpty {
+                    Text(identifier)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            Spacer()
+
+            Text(node.frame.description)
+                .font(.system(.caption2, design: .monospaced))
+                .foregroundColor(.secondary.opacity(0.7))
+        }
+        .padding(.vertical, 2)
+        .padding(.horizontal, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 4)
+                .fill(isSelected ? Color.accentColor.opacity(0.2) : Color.clear)
+        )
     }
 
     private func iconForType(_ type: String) -> String {

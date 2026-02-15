@@ -78,6 +78,9 @@ struct MainView: View {
         .onChange(of: simulatorService.selectedDevice) { _, _ in
             Task { await refreshHierarchy() }
         }
+        .onChange(of: selectedElement) { _, newElement in
+            highlightSelectedElement(newElement)
+        }
     }
 
     // MARK: - Setup
@@ -128,7 +131,9 @@ struct MainView: View {
     private func startInspectMode() {
         windowTracker.startTracking()
 
-        let overlay = OverlayWindow()
+        // Reuse existing overlay or create new one
+        let overlay = overlayWindow ?? OverlayWindow()
+        overlay.ignoresMouseEvents = false
         overlay.orderFront(nil)
         overlayWindow = overlay
 
@@ -159,10 +164,18 @@ struct MainView: View {
     }
 
     private func stopInspectMode() {
-        windowTracker.stopTracking()
-        overlayWindow?.highlightRect(nil)
-        overlayWindow?.orderOut(nil)
-        overlayWindow = nil
+        if let selected = selectedElement {
+            // Keep overlay showing the selected element
+            overlayWindow?.ignoresMouseEvents = true
+            overlayWindow?.setMouseHandler(nil)
+            overlayWindow?.setClickHandler(nil)
+            highlightSelectedElement(selected)
+        } else {
+            windowTracker.stopTracking()
+            overlayWindow?.highlightRect(nil)
+            overlayWindow?.orderOut(nil)
+            overlayWindow = nil
+        }
     }
 
     private func updateOverlayPosition() {
@@ -212,6 +225,44 @@ struct MainView: View {
         if let element = hoveredElement {
             selectedElement = element
             isInspectMode = false
+        }
+    }
+
+    // MARK: - Selection Highlight
+
+    private func highlightSelectedElement(_ element: ElementNode?) {
+        guard let element else {
+            // Clear highlight if nothing selected and not in inspect mode
+            if !isInspectMode {
+                overlayWindow?.highlightRect(nil)
+                overlayWindow?.orderOut(nil)
+            }
+            return
+        }
+
+        // Ensure window tracker is running so we know where the Simulator is
+        windowTracker.startTracking()
+        guard let contentRect = windowTracker.contentRect else { return }
+
+        let mapper = CoordinateMapper.autoDetect(contentRect: contentRect)
+        let screenRect = mapper.iOSFrameToScreen(element.frame.cgRect)
+
+        // Create or reuse overlay
+        if overlayWindow == nil {
+            let overlay = OverlayWindow()
+            overlayWindow = overlay
+        }
+
+        if let frame = windowTracker.simulatorWindowFrame {
+            overlayWindow?.updateFrame(to: frame)
+        }
+        overlayWindow?.orderFront(nil)
+        overlayWindow?.highlightRect(screenRect)
+        overlayWindow?.showLabel(element.displayTitle)
+
+        // Keep overlay positioned while selection is shown
+        if !isInspectMode {
+            overlayWindow?.ignoresMouseEvents = true
         }
     }
 }
