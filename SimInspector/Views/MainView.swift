@@ -1,5 +1,17 @@
 import SwiftUI
 
+private func debugLog(_ msg: String) {
+    let line = "\(Date()): \(msg)\n"
+    let path = "/tmp/siminspector_debug.log"
+    if let handle = FileHandle(forWritingAtPath: path) {
+        handle.seekToEndOfFile()
+        handle.write(line.data(using: .utf8) ?? Data())
+        handle.closeFile()
+    } else {
+        FileManager.default.createFile(atPath: path, contents: line.data(using: .utf8))
+    }
+}
+
 /// Main split view with element tree and property inspector.
 struct MainView: View {
     @StateObject private var simulatorService = SimulatorService()
@@ -118,11 +130,58 @@ struct MainView: View {
         errorMessage = nil
 
         do {
+            debugLog("[MainView] refreshHierarchy: calling describeAll for \(device.udid)")
             elements = try await idbService.describeAll(udid: device.udid)
+            debugLog("[MainView] refreshHierarchy: got \(elements.count) elements, now calibrating")
             isLoading = false
+
+            // Start tracking window and detect content area via Accessibility
+            windowTracker.startTracking()
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            detectContentArea()
         } catch {
+            debugLog("[MainView] refreshHierarchy error: \(error)")
             isLoading = false
             errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Detect the iOS content area within the Simulator window using Accessibility API.
+    private func detectContentArea() {
+        guard let root = elements.first else { return }
+        let iOSSize = CGSize(width: root.frame.width, height: root.frame.height)
+
+        // Use Accessibility API to find the device rendering area
+        if let contentFrame = CoordinateMapper.detectSimulatorContentFrame() {
+            debugLog("[MainView] AX detected content frame: \(contentFrame)")
+            // contentFrame is the device view (includes bezel). iOS content is inside.
+            // The device view renders the full device including bezel.
+            // We need to figure out where the iOS screen sits within the device view.
+            // The iOS screen occupies the device view minus bezel padding.
+            // For now, use the device view frame and compute iOS content analytically:
+            // the device aspect ratio from the view should match or be close to the iOS aspect.
+            let viewAspect = contentFrame.width / contentFrame.height
+            let iosAspect = iOSSize.width / iOSSize.height
+
+            if abs(viewAspect - iosAspect) < 0.05 {
+                // Close match — the device view IS the iOS content (no bezel or minimal bezel)
+                debugLog("[MainView] Device view matches iOS aspect ratio — using as content rect")
+                windowTracker.setCalibration(contentRect: contentFrame)
+            } else {
+                // Device view includes bezels — iOS content is centered within it, maintaining aspect ratio
+                let scaleX = contentFrame.width / iOSSize.width
+                let scaleY = contentFrame.height / iOSSize.height
+                let scale = min(scaleX, scaleY)
+                let contentW = iOSSize.width * scale
+                let contentH = iOSSize.height * scale
+                let contentX = contentFrame.origin.x + (contentFrame.width - contentW) / 2
+                let contentY = contentFrame.origin.y + (contentFrame.height - contentH) / 2
+                let contentRect = CGRect(x: contentX, y: contentY, width: contentW, height: contentH)
+                debugLog("[MainView] Computed iOS content rect within device view: \(contentRect)")
+                windowTracker.setCalibration(contentRect: contentRect)
+            }
+        } else {
+            debugLog("[MainView] AX detection failed, using analytical fallback")
         }
     }
 
@@ -183,8 +242,39 @@ struct MainView: View {
         overlayWindow?.updateFrame(to: frame)
     }
 
+    /// Build a CoordinateMapper using known window frame and iOS device size.
+    private func currentMapper() -> CoordinateMapper? {
+        guard let windowFrame = windowTracker.simulatorWindowFrame else { return nil }
+        guard let root = elements.first else { return nil }
+        let iOSSize = CGSize(width: root.frame.width, height: root.frame.height)
+
+        // Use calibrated data if available
+        if windowTracker.isCalibrated, let contentRect = windowTracker.contentRect {
+            return CoordinateMapper(contentRect: contentRect, deviceSize: iOSSize)
+        }
+
+        // Analytical: title bar is 28pt, iOS content fills remaining space maintaining aspect ratio
+        let titleBarHeight: CGFloat = 28
+        let availableWidth = windowFrame.width
+        let availableHeight = windowFrame.height - titleBarHeight
+
+        let scaleX = availableWidth / iOSSize.width
+        let scaleY = availableHeight / iOSSize.height
+        let scale = min(scaleX, scaleY)
+
+        let contentWidth = iOSSize.width * scale
+        let contentHeight = iOSSize.height * scale
+
+        let contentX = windowFrame.origin.x + (availableWidth - contentWidth) / 2
+        let contentY = windowFrame.origin.y + titleBarHeight + (availableHeight - contentHeight) / 2
+
+        let contentRect = CGRect(x: contentX, y: contentY, width: contentWidth, height: contentHeight)
+        debugLog("[currentMapper] analytical contentRect=\(contentRect), scale=\(scale), windowFrame=\(windowFrame)")
+        return CoordinateMapper(contentRect: contentRect, deviceSize: iOSSize)
+    }
+
     private func handleMouseMove(_ screenPoint: NSPoint) {
-        guard let contentRect = windowTracker.contentRect else { return }
+        guard let mapper = currentMapper() else { return }
 
         // Convert screen point to top-left origin for the mapper
         guard let screen = NSScreen.main else { return }
@@ -193,7 +283,6 @@ struct MainView: View {
             y: screen.frame.height - screenPoint.y
         )
 
-        let mapper = CoordinateMapper.autoDetect(contentRect: contentRect)
         guard let iosPoint = mapper.macScreenToiOS(topLeftPoint) else {
             overlayWindow?.highlightRect(nil)
             hoveredElement = nil
@@ -242,9 +331,8 @@ struct MainView: View {
 
         // Ensure window tracker is running so we know where the Simulator is
         windowTracker.startTracking()
-        guard let contentRect = windowTracker.contentRect else { return }
+        guard let mapper = currentMapper() else { return }
 
-        let mapper = CoordinateMapper.autoDetect(contentRect: contentRect)
         let screenRect = mapper.iOSFrameToScreen(element.frame.cgRect)
 
         // Create or reuse overlay

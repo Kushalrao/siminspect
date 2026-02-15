@@ -174,14 +174,22 @@ final class IDBService: ObservableObject {
         return try ElementNode.fromIDBPointJSON(data)
     }
 
-    /// Capture a screenshot from the simulator.
+    /// Capture a screenshot from the simulator using simctl (more reliable than idb).
     func screenshot(udid: String) async throws -> NSImage {
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("siminspector_\(UUID().uuidString).png")
 
         defer { try? FileManager.default.removeItem(at: tempURL) }
 
-        _ = try await runIDB(["screenshot", "--udid", udid, tempURL.path])
+        let xcrun = "/usr/bin/xcrun"
+        let output = try await ProcessRunner.run(xcrun, arguments: [
+            "simctl", "io", udid, "screenshot", tempURL.path
+        ])
+
+        guard output.exitCode == 0 else {
+            let msg = output.stderr.isEmpty ? output.stdout : output.stderr
+            throw IDBError.screenshotFailed
+        }
 
         guard let image = NSImage(contentsOf: tempURL) else {
             throw IDBError.screenshotFailed
