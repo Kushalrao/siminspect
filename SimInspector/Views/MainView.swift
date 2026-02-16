@@ -28,6 +28,7 @@ struct MainView: View {
 
     @State private var overlayWindow: OverlayWindow?
     @State private var hoveredElement: ElementNode?
+    @State private var recalibrationTask: Task<Void, Never>?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -187,6 +188,15 @@ struct MainView: View {
         .onChange(of: selectedElement) { _, el in highlightSelectedElement(el) }
         .onChange(of: windowTracker.simulatorWindowFrame) { _, _ in
             if isInspectMode || selectedElement != nil { updateOverlayPosition() }
+            if !windowTracker.isCalibrated && !elements.isEmpty {
+                recalibrationTask?.cancel()
+                recalibrationTask = Task {
+                    try? await Task.sleep(nanoseconds: 300_000_000)
+                    if !Task.isCancelled {
+                        detectContentArea()
+                    }
+                }
+            }
         }
         .preferredColorScheme(.dark)
         .background(.clear)
