@@ -245,6 +245,16 @@ struct MainView: View {
             }
 
             Spacer()
+
+            if isSelected {
+                Button(action: { copyElementText(item.node) }) {
+                    Image(systemName: "doc.on.doc")
+                        .font(.system(size: 12))
+                        .foregroundColor(.black.opacity(0.4))
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 2)
+            }
         }
         .padding(.vertical, 7)
         .padding(.horizontal, 10)
@@ -267,6 +277,15 @@ struct MainView: View {
         .onTapGesture {
             selectedElement = item.node
         }
+    }
+
+    private func copyElementText(_ node: ElementNode) {
+        var text = node.type
+        if let label = node.label, !label.isEmpty { text += "\n\(label)" }
+        text += "\n\(Int(node.frame.x)), \(Int(node.frame.y))  \(Int(node.frame.width))×\(Int(node.frame.height))"
+        if let role = node.role, !role.isEmpty { text += "\n\(role)" }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
     // MARK: - Setup & Hierarchy
