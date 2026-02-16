@@ -202,7 +202,7 @@ final class IDBService: ObservableObject {
 
     /// Run an idb CLI command, ensuring the companion is running first.
     private func runIDB(_ arguments: [String]) async throws -> String {
-        guard let cli = idbCliPath, companionPath != nil else {
+        guard let cli = idbCliPath, let companion = companionPath else {
             throw IDBError.notInstalled
         }
 
@@ -213,7 +213,11 @@ final class IDBService: ObservableObject {
             try await ensureCompanion(udid: udid)
         }
 
-        let output = try await ProcessRunner.run(cli, arguments: arguments)
+        // Prepend --companion-path so the idb Python client uses our companion binary
+        // instead of looking for it at /usr/local/bin/idb_companion
+        let fullArguments = ["--companion-path", companion] + arguments
+
+        let output = try await ProcessRunner.run(cli, arguments: fullArguments)
 
         guard output.exitCode == 0 else {
             let msg = output.stderr.isEmpty ? output.stdout : output.stderr
