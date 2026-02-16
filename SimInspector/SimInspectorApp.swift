@@ -2,12 +2,11 @@ import SwiftUI
 
 @main
 struct SimInspectorApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+
     var body: some Scene {
-        WindowGroup {
-            MainView()
-                .frame(minWidth: 700, minHeight: 500)
+        Settings {
+            EmptyView()
         }
-        .windowStyle(.titleBar)
-        .defaultSize(width: 900, height: 650)
     }
 }

@@ -12,11 +12,10 @@ private func debugLog(_ msg: String) {
     }
 }
 
-/// Main split view with element tree and property inspector.
 struct MainView: View {
     @StateObject private var simulatorService = SimulatorService()
     @StateObject private var idbService = IDBService()
-    @StateObject private var windowTracker = WindowTracker()
+    @EnvironmentObject var windowTracker: WindowTracker
 
     @State private var elements: [ElementNode] = []
     @State private var selectedElement: ElementNode?
@@ -25,163 +24,277 @@ struct MainView: View {
     @State private var errorMessage: String?
     @State private var searchText = ""
     @State private var showSetup = false
+    @State private var showSearch = false
 
-    // Overlay
     @State private var overlayWindow: OverlayWindow?
     @State private var hoveredElement: ElementNode?
 
     var body: some View {
-        NavigationSplitView {
-            ElementTreeView(
-                elements: elements,
-                selectedElement: $selectedElement,
-                searchText: $searchText
-            )
-            .frame(minWidth: 300)
-            .navigationSplitViewColumnWidth(min: 250, ideal: 350, max: 500)
-        } detail: {
-            PropertyInspectorView(element: selectedElement)
-                .frame(minWidth: 250)
-        }
-        .toolbar {
-            SimInspectorToolbar(
-                simulatorService: simulatorService,
-                isInspectMode: $isInspectMode,
-                onRefresh: { Task { await refreshHierarchy() } }
-            )
-        }
-        .overlay {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Button(action: { NSApp.terminate(nil) }) {
+                    Image(systemName: "xmark")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+
+                Spacer()
+
+                Text("SimInspector")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Spacer()
+
+                HStack(spacing: 10) {
+                    Button(action: { withAnimation(.easeInOut(duration: 0.2)) { showSearch.toggle() } }) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+
+                    Button(action: { isInspectMode.toggle() }) {
+                        Image(systemName: "cursorarrow.click")
+                            .font(.caption)
+                            .foregroundColor(isInspectMode ? .accentColor : .secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut("i", modifiers: [.command, .shift])
+
+                    Button(action: { Task { await refreshHierarchy() } }) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut("r", modifiers: .command)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+
+            // Search (togglable)
+            if showSearch {
+                HStack(spacing: 4) {
+                    TextField("Search...", text: $searchText)
+                        .textFieldStyle(.plain)
+                        .font(.system(.caption, design: .monospaced))
+                    if !searchText.isEmpty {
+                        Button(action: { searchText = "" }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.bottom, 6)
+            }
+
+            // Sim picker (compact)
+            if simulatorService.bootedDevices.count > 1 {
+                Picker("", selection: $simulatorService.selectedDevice) {
+                    ForEach(simulatorService.bootedDevices) { device in
+                        Text(device.displayName).tag(device as SimulatorDevice?)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .font(.caption2)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 4)
+            }
+
+            // Content
             if isLoading {
-                ProgressView("Loading element tree...")
-                    .padding()
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                Spacer()
+                ProgressView()
+                    .scaleEffect(0.7)
+                Spacer()
+            } else if elements.isEmpty {
+                Spacer()
+                Text("No elements")
+                    .font(.caption)
+                    .foregroundColor(.secondary.opacity(0.6))
+                Spacer()
+            } else {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(flattenedElements) { item in
+                                elementRow(item, proxy: proxy)
+                            }
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                    }
+                }
+
+                // Properties
+                if let el = selectedElement {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Divider().opacity(0.2)
+
+                        Text(el.type)
+                            .font(.system(.caption, design: .monospaced))
+                            .fontWeight(.bold)
+
+                        if let label = el.label, !label.isEmpty {
+                            Text(label)
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+
+                        Text("\(Int(el.frame.x)), \(Int(el.frame.y))  \(Int(el.frame.width))×\(Int(el.frame.height))")
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundColor(.secondary.opacity(0.7))
+
+                        if let role = el.role, !role.isEmpty {
+                            Text(role)
+                                .font(.caption2)
+                                .foregroundColor(.secondary.opacity(0.7))
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                }
             }
         }
         .overlay(alignment: .bottom) {
             if let error = errorMessage {
-                HStack {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(.yellow)
-                    Text(error)
-                        .font(.callout)
-                    Spacer()
-                    Button("Dismiss") { errorMessage = nil }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                }
-                .padding()
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-                .padding()
+                Text(error)
+                    .font(.caption2)
+                    .foregroundColor(.yellow)
+                    .lineLimit(2)
+                    .padding(6)
+                    .onTapGesture { errorMessage = nil }
             }
         }
         .sheet(isPresented: $showSetup) {
             SetupView(idbService: idbService)
         }
-        .task {
-            await initialSetup()
-        }
-        .onChange(of: isInspectMode) { _, newValue in
-            if newValue {
-                startInspectMode()
-            } else {
-                stopInspectMode()
-            }
+        .task { await initialSetup() }
+        .onChange(of: isInspectMode) { _, v in
+            if v { startInspectMode() } else { stopInspectMode() }
         }
         .onChange(of: simulatorService.selectedDevice) { _, _ in
             Task { await refreshHierarchy() }
         }
-        .onChange(of: selectedElement) { _, newElement in
-            highlightSelectedElement(newElement)
+        .onChange(of: selectedElement) { _, el in highlightSelectedElement(el) }
+        .onChange(of: windowTracker.simulatorWindowFrame) { _, _ in
+            if isInspectMode || selectedElement != nil { updateOverlayPosition() }
+        }
+        .preferredColorScheme(.dark)
+        .background(.clear)
+    }
+
+    // MARK: - Flattened tree for display
+
+    private struct FlatItem: Identifiable {
+        let id: UUID
+        let node: ElementNode
+        let depth: Int
+        let hasChildren: Bool
+    }
+
+    private var flattenedElements: [FlatItem] {
+        var result: [FlatItem] = []
+        func walk(_ nodes: [ElementNode], depth: Int) {
+            for node in nodes {
+                let matches = searchText.isEmpty
+                    || node.type.localizedCaseInsensitiveContains(searchText)
+                    || (node.label?.localizedCaseInsensitiveContains(searchText) ?? false)
+                if matches || !node.children.isEmpty {
+                    result.append(FlatItem(id: node.id, node: node, depth: depth, hasChildren: !node.children.isEmpty))
+                    walk(node.children, depth: depth + 1)
+                }
+            }
+        }
+        walk(elements, depth: 0)
+        return result
+    }
+
+    @ViewBuilder
+    private func elementRow(_ item: FlatItem, proxy: ScrollViewProxy) -> some View {
+        let isSelected = selectedElement?.id == item.id
+
+        HStack(spacing: 0) {
+            // Indent
+            Spacer()
+                .frame(width: CGFloat(item.depth) * 12)
+
+            Text(item.node.type)
+                .font(.system(.caption, design: .monospaced))
+                .fontWeight(isSelected ? .bold : .regular)
+                .foregroundColor(isSelected ? .white : .primary.opacity(0.85))
+
+            if let label = item.node.label, !label.isEmpty {
+                Text(" ")
+                Text(label)
+                    .font(.caption2)
+                    .foregroundColor(.secondary.opacity(0.6))
+                    .lineLimit(1)
+            }
+
+            Spacer()
+        }
+        .padding(.vertical, 3)
+        .padding(.horizontal, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 4)
+                .fill(isSelected ? Color.accentColor.opacity(0.25) : Color.clear)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            selectedElement = item.node
         }
     }
 
-    // MARK: - Setup
+    // MARK: - Setup & Hierarchy
 
     private func initialSetup() async {
-        // Check for idb
-        if !idbService.isAvailable {
-            showSetup = true
-        }
-
-        // Discover simulators and start polling for new ones
+        if !idbService.isAvailable { showSetup = true }
         await simulatorService.refreshDevices()
         simulatorService.startPolling()
-
-        // Load hierarchy if we have a device
-        if simulatorService.selectedDevice != nil {
-            await refreshHierarchy()
-        }
+        if simulatorService.selectedDevice != nil { await refreshHierarchy() }
     }
-
-    // MARK: - Hierarchy
 
     private func refreshHierarchy() async {
         guard let device = simulatorService.selectedDevice else {
-            errorMessage = "No simulator selected"
-            return
+            errorMessage = "No simulator selected"; return
         }
-
-        guard idbService.isAvailable else {
-            showSetup = true
-            return
-        }
-
-        isLoading = true
-        errorMessage = nil
-
+        guard idbService.isAvailable else { showSetup = true; return }
+        isLoading = true; errorMessage = nil
         do {
-            debugLog("[MainView] refreshHierarchy: calling describeAll for \(device.udid)")
             elements = try await idbService.describeAll(udid: device.udid)
-            debugLog("[MainView] refreshHierarchy: got \(elements.count) elements, now calibrating")
             isLoading = false
-
-            // Start tracking window and detect content area via Accessibility
             windowTracker.startTracking()
             try? await Task.sleep(nanoseconds: 200_000_000)
             detectContentArea()
         } catch {
-            debugLog("[MainView] refreshHierarchy error: \(error)")
-            isLoading = false
-            errorMessage = error.localizedDescription
+            isLoading = false; errorMessage = error.localizedDescription
         }
     }
 
-    /// Detect the iOS content area within the Simulator window using Accessibility API.
     private func detectContentArea() {
         guard let root = elements.first else { return }
         let iOSSize = CGSize(width: root.frame.width, height: root.frame.height)
-
-        // Use Accessibility API to find the device rendering area
         if let contentFrame = CoordinateMapper.detectSimulatorContentFrame() {
-            debugLog("[MainView] AX detected content frame: \(contentFrame)")
-            // contentFrame is the device view (includes bezel). iOS content is inside.
-            // The device view renders the full device including bezel.
-            // We need to figure out where the iOS screen sits within the device view.
-            // The iOS screen occupies the device view minus bezel padding.
-            // For now, use the device view frame and compute iOS content analytically:
-            // the device aspect ratio from the view should match or be close to the iOS aspect.
             let viewAspect = contentFrame.width / contentFrame.height
             let iosAspect = iOSSize.width / iOSSize.height
-
             if abs(viewAspect - iosAspect) < 0.05 {
-                // Close match — the device view IS the iOS content (no bezel or minimal bezel)
-                debugLog("[MainView] Device view matches iOS aspect ratio — using as content rect")
                 windowTracker.setCalibration(contentRect: contentFrame)
             } else {
-                // Device view includes bezels — iOS content is centered within it, maintaining aspect ratio
-                let scaleX = contentFrame.width / iOSSize.width
-                let scaleY = contentFrame.height / iOSSize.height
-                let scale = min(scaleX, scaleY)
-                let contentW = iOSSize.width * scale
-                let contentH = iOSSize.height * scale
-                let contentX = contentFrame.origin.x + (contentFrame.width - contentW) / 2
-                let contentY = contentFrame.origin.y + (contentFrame.height - contentH) / 2
-                let contentRect = CGRect(x: contentX, y: contentY, width: contentW, height: contentH)
-                debugLog("[MainView] Computed iOS content rect within device view: \(contentRect)")
-                windowTracker.setCalibration(contentRect: contentRect)
+                let scale = min(contentFrame.width / iOSSize.width, contentFrame.height / iOSSize.height)
+                let cw = iOSSize.width * scale, ch = iOSSize.height * scale
+                let cx = contentFrame.origin.x + (contentFrame.width - cw) / 2
+                let cy = contentFrame.origin.y + (contentFrame.height - ch) / 2
+                windowTracker.setCalibration(contentRect: CGRect(x: cx, y: cy, width: cw, height: ch))
             }
-        } else {
-            debugLog("[MainView] AX detection failed, using analytical fallback")
         }
     }
 
@@ -189,48 +302,22 @@ struct MainView: View {
 
     private func startInspectMode() {
         windowTracker.startTracking()
-
-        // Reuse existing overlay or create new one
         let overlay = overlayWindow ?? OverlayWindow()
         overlay.ignoresMouseEvents = false
         overlay.orderFront(nil)
         overlayWindow = overlay
-
-        // Position overlay over Simulator
         updateOverlayPosition()
-
-        // Set up mouse tracking — local hit-testing, no async needed
-        overlay.setMouseHandler { screenPoint in
-            Task { @MainActor in
-                self.handleMouseMove(screenPoint)
-            }
-        }
-
-        overlay.setClickHandler { screenPoint in
-            Task { @MainActor in
-                self.handleMouseClick(screenPoint)
-            }
-        }
-
-        // Start a timer to keep overlay positioned
-        Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
-            Task { @MainActor in
-                if isInspectMode {
-                    updateOverlayPosition()
-                }
-            }
-        }
+        overlay.setMouseHandler { sp in Task { @MainActor in self.handleMouseMove(sp) } }
+        overlay.setClickHandler { sp in Task { @MainActor in self.handleMouseClick(sp) } }
     }
 
     private func stopInspectMode() {
         if let selected = selectedElement {
-            // Keep overlay showing the selected element
             overlayWindow?.ignoresMouseEvents = true
             overlayWindow?.setMouseHandler(nil)
             overlayWindow?.setClickHandler(nil)
             highlightSelectedElement(selected)
         } else {
-            windowTracker.stopTracking()
             overlayWindow?.highlightRect(nil)
             overlayWindow?.orderOut(nil)
             overlayWindow = nil
@@ -242,115 +329,53 @@ struct MainView: View {
         overlayWindow?.updateFrame(to: frame)
     }
 
-    /// Build a CoordinateMapper using known window frame and iOS device size.
     private func currentMapper() -> CoordinateMapper? {
-        guard let windowFrame = windowTracker.simulatorWindowFrame else { return nil }
-        guard let root = elements.first else { return nil }
-        let iOSSize = CGSize(width: root.frame.width, height: root.frame.height)
-
-        // Use calibrated data if available
-        if windowTracker.isCalibrated, let contentRect = windowTracker.contentRect {
-            return CoordinateMapper(contentRect: contentRect, deviceSize: iOSSize)
+        guard let wf = windowTracker.simulatorWindowFrame, let root = elements.first else { return nil }
+        let ios = CGSize(width: root.frame.width, height: root.frame.height)
+        if windowTracker.isCalibrated, let cr = windowTracker.contentRect {
+            return CoordinateMapper(contentRect: cr, deviceSize: ios)
         }
-
-        // Analytical: title bar is 28pt, iOS content fills remaining space maintaining aspect ratio
-        let titleBarHeight: CGFloat = 28
-        let availableWidth = windowFrame.width
-        let availableHeight = windowFrame.height - titleBarHeight
-
-        let scaleX = availableWidth / iOSSize.width
-        let scaleY = availableHeight / iOSSize.height
-        let scale = min(scaleX, scaleY)
-
-        let contentWidth = iOSSize.width * scale
-        let contentHeight = iOSSize.height * scale
-
-        let contentX = windowFrame.origin.x + (availableWidth - contentWidth) / 2
-        let contentY = windowFrame.origin.y + titleBarHeight + (availableHeight - contentHeight) / 2
-
-        let contentRect = CGRect(x: contentX, y: contentY, width: contentWidth, height: contentHeight)
-        debugLog("[currentMapper] analytical contentRect=\(contentRect), scale=\(scale), windowFrame=\(windowFrame)")
-        return CoordinateMapper(contentRect: contentRect, deviceSize: iOSSize)
+        let tbh: CGFloat = 28
+        let aw = wf.width, ah = wf.height - tbh
+        let scale = min(aw / ios.width, ah / ios.height)
+        let cw = ios.width * scale, ch = ios.height * scale
+        let cx = wf.origin.x + (aw - cw) / 2, cy = wf.origin.y + tbh + (ah - ch) / 2
+        return CoordinateMapper(contentRect: CGRect(x: cx, y: cy, width: cw, height: ch), deviceSize: ios)
     }
 
     private func handleMouseMove(_ screenPoint: NSPoint) {
-        guard let mapper = currentMapper() else { return }
-
-        // Convert screen point to top-left origin for the mapper
-        guard let screen = NSScreen.main else { return }
-        let topLeftPoint = CGPoint(
-            x: screenPoint.x,
-            y: screen.frame.height - screenPoint.y
-        )
-
-        guard let iosPoint = mapper.macScreenToiOS(topLeftPoint) else {
-            overlayWindow?.highlightRect(nil)
-            hoveredElement = nil
-            return
+        guard let mapper = currentMapper(), let screen = NSScreen.main else { return }
+        let tlp = CGPoint(x: screenPoint.x, y: screen.frame.height - screenPoint.y)
+        guard let ip = mapper.macScreenToiOS(tlp) else {
+            overlayWindow?.highlightRect(nil); hoveredElement = nil; return
         }
-
-        // Local hit-test against the cached element tree — instant, no IPC
         var hit: ElementNode?
-        for root in elements {
-            if let found = root.hitTest(point: iosPoint) {
-                hit = found
-                break
-            }
-        }
-
+        for r in elements { if let f = r.hitTest(point: ip) { hit = f; break } }
         if let hit {
-            let screenRect = mapper.iOSFrameToScreen(hit.frame.cgRect)
-            overlayWindow?.highlightRect(screenRect)
+            overlayWindow?.highlightRect(mapper.iOSFrameToScreen(hit.frame.cgRect))
             overlayWindow?.showLabel(hit.displayTitle)
             hoveredElement = hit
         } else {
-            overlayWindow?.highlightRect(nil)
-            hoveredElement = nil
+            overlayWindow?.highlightRect(nil); hoveredElement = nil
         }
     }
 
     private func handleMouseClick(_ screenPoint: NSPoint) {
-        // Just select whatever is currently hovered — already computed by handleMouseMove
-        if let element = hoveredElement {
-            selectedElement = element
-            isInspectMode = false
-        }
+        if let el = hoveredElement { selectedElement = el; isInspectMode = false }
     }
-
-    // MARK: - Selection Highlight
 
     private func highlightSelectedElement(_ element: ElementNode?) {
         guard let element else {
-            // Clear highlight if nothing selected and not in inspect mode
-            if !isInspectMode {
-                overlayWindow?.highlightRect(nil)
-                overlayWindow?.orderOut(nil)
-            }
+            if !isInspectMode { overlayWindow?.highlightRect(nil); overlayWindow?.orderOut(nil) }
             return
         }
-
-        // Ensure window tracker is running so we know where the Simulator is
         windowTracker.startTracking()
         guard let mapper = currentMapper() else { return }
-
-        let screenRect = mapper.iOSFrameToScreen(element.frame.cgRect)
-
-        // Create or reuse overlay
-        if overlayWindow == nil {
-            let overlay = OverlayWindow()
-            overlayWindow = overlay
-        }
-
-        if let frame = windowTracker.simulatorWindowFrame {
-            overlayWindow?.updateFrame(to: frame)
-        }
+        if overlayWindow == nil { overlayWindow = OverlayWindow() }
+        if let frame = windowTracker.simulatorWindowFrame { overlayWindow?.updateFrame(to: frame) }
         overlayWindow?.orderFront(nil)
-        overlayWindow?.highlightRect(screenRect)
+        overlayWindow?.highlightRect(mapper.iOSFrameToScreen(element.frame.cgRect))
         overlayWindow?.showLabel(element.displayTitle)
-
-        // Keep overlay positioned while selection is shown
-        if !isInspectMode {
-            overlayWindow?.ignoresMouseEvents = true
-        }
+        if !isInspectMode { overlayWindow?.ignoresMouseEvents = true }
     }
 }

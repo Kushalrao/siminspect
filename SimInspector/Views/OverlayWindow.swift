@@ -15,7 +15,7 @@ class OverlayWindow: NSWindow {
 
         isOpaque = false
         backgroundColor = .clear
-        level = .floating
+        level = NSWindow.Level(rawValue: NSWindow.Level.floating.rawValue + 1)
         ignoresMouseEvents = false
         hasShadow = false
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]

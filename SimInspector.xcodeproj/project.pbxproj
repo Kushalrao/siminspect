@@ -21,6 +21,8 @@
 		A1B2C3D4E5F60001000A000C /* SetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60002000A000C /* SetupView.swift */; };
 		A1B2C3D4E5F60001000A000D /* CoordinateMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60002000A000D /* CoordinateMapper.swift */; };
 		A1B2C3D4E5F60001000A000E /* ProcessRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60002000A000E /* ProcessRunner.swift */; };
+		A1B2C3D4E5F60001000A000F /* InspectorPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60002000A0010 /* InspectorPanel.swift */; };
+		A1B2C3D4E5F60001000A0010 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60002000A0011 /* AppDelegate.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -39,6 +41,8 @@
 		A1B2C3D4E5F60002000A000D /* CoordinateMapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoordinateMapper.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60002000A000E /* ProcessRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessRunner.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60002000A000F /* SimInspector.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SimInspector.entitlements; sourceTree = "<group>"; };
+		A1B2C3D4E5F60002000A0010 /* InspectorPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InspectorPanel.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F60002000A0011 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60003000A0001 /* SimInspector.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SimInspector.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -65,6 +69,7 @@
 			isa = PBXGroup;
 			children = (
 				A1B2C3D4E5F60002000A0001 /* SimInspectorApp.swift */,
+				A1B2C3D4E5F60002000A0011 /* AppDelegate.swift */,
 				A1B2C3D4E5F60002000A000F /* SimInspector.entitlements */,
 				A1B2C3D4E5F60005000A0003 /* Models */,
 				A1B2C3D4E5F60005000A0004 /* Services */,
@@ -102,6 +107,7 @@
 				A1B2C3D4E5F60002000A000A /* OverlayWindow.swift */,
 				A1B2C3D4E5F60002000A000B /* ToolbarView.swift */,
 				A1B2C3D4E5F60002000A000C /* SetupView.swift */,
+				A1B2C3D4E5F60002000A0010 /* InspectorPanel.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -205,6 +211,8 @@
 				A1B2C3D4E5F60001000A000C /* SetupView.swift in Sources */,
 				A1B2C3D4E5F60001000A000D /* CoordinateMapper.swift in Sources */,
 				A1B2C3D4E5F60001000A000E /* ProcessRunner.swift in Sources */,
+				A1B2C3D4E5F60001000A000F /* InspectorPanel.swift in Sources */,
+				A1B2C3D4E5F60001000A0010 /* AppDelegate.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
