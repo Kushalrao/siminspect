@@ -6,7 +6,7 @@ class InspectorPanel: NSPanel {
     init(contentRect: NSRect) {
         super.init(
             contentRect: contentRect,
-            styleMask: [.borderless, .nonactivatingPanel],
+            styleMask: [.borderless, .nonactivatingPanel, .resizable],
             backing: .buffered,
             defer: false
         )
@@ -17,20 +17,13 @@ class InspectorPanel: NSPanel {
         isMovableByWindowBackground = true
         isOpaque = false
         backgroundColor = .clear
-        hasShadow = true
+        hasShadow = false
         minSize = NSSize(width: 280, height: 300)
         isReleasedWhenClosed = false
 
-        // Build the visual effect background with rounded corners
-        let visualEffect = NSVisualEffectView(frame: contentRect)
-        visualEffect.material = .hudWindow
-        visualEffect.blendingMode = .behindWindow
-        visualEffect.state = .active
-        visualEffect.wantsLayer = true
-        visualEffect.layer?.cornerRadius = 14
-        visualEffect.layer?.masksToBounds = true
-
-        contentView = visualEffect
+        let container = NSView(frame: contentRect)
+        container.wantsLayer = true
+        contentView = container
     }
 
     override var canBecomeKey: Bool { true }

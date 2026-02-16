@@ -22,7 +22,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         windowTracker = tracker
 
         // Create the panel
-        let defaultWidth: CGFloat = 260
+        let defaultWidth: CGFloat = 320
         let defaultHeight: CGFloat = 500
         let panelRect = NSRect(x: 200, y: 200, width: defaultWidth, height: defaultHeight)
         let inspectorPanel = InspectorPanel(contentRect: panelRect)
@@ -93,7 +93,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         guard let screen else { return }
 
-        let panelWidth = panel.frame.width > 0 ? panel.frame.width : 260
+        let panelWidth = panel.frame.width > 0 ? panel.frame.width : 320
         let visibleFrame = screen.visibleFrame
 
         // Panel height matches Simulator height, clamped to screen

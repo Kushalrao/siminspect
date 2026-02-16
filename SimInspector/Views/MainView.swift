@@ -1,4 +1,26 @@
 import SwiftUI
+import AppKit
+
+private struct BlurView: NSViewRepresentable {
+    var material: NSVisualEffectView.Material
+    var cornerRadius: CGFloat
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = material
+        view.blendingMode = .behindWindow
+        view.state = .active
+        view.wantsLayer = true
+        view.layer?.cornerRadius = cornerRadius
+        view.layer?.masksToBounds = true
+        return view
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
+        nsView.material = material
+        nsView.layer?.cornerRadius = cornerRadius
+    }
+}
 
 private func debugLog(_ msg: String) {
     let line = "\(Date()): \(msg)\n"
@@ -33,46 +55,31 @@ struct MainView: View {
     var body: some View {
         VStack(spacing: 0) {
             // Header
-            HStack {
-                Button(action: { NSApp.terminate(nil) }) {
-                    Image(systemName: "xmark")
+            HStack(spacing: 10) {
+                Spacer()
+
+                Button(action: { withAnimation(.easeInOut(duration: 0.2)) { showSearch.toggle() } }) {
+                    Image(systemName: "magnifyingglass")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
                 .buttonStyle(.plain)
 
-                Spacer()
-
-                Text("SimInspector")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-
-                Spacer()
-
-                HStack(spacing: 10) {
-                    Button(action: { withAnimation(.easeInOut(duration: 0.2)) { showSearch.toggle() } }) {
-                        Image(systemName: "magnifyingglass")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .buttonStyle(.plain)
-
-                    Button(action: { isInspectMode.toggle() }) {
-                        Image(systemName: "cursorarrow.click")
-                            .font(.caption)
-                            .foregroundColor(isInspectMode ? .accentColor : .secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .keyboardShortcut("i", modifiers: [.command, .shift])
-
-                    Button(action: { Task { await refreshHierarchy() } }) {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .keyboardShortcut("r", modifiers: .command)
+                Button(action: { isInspectMode.toggle() }) {
+                    Image(systemName: "cursorarrow.click")
+                        .font(.caption)
+                        .foregroundColor(isInspectMode ? .accentColor : .secondary)
                 }
+                .buttonStyle(.plain)
+                .keyboardShortcut("i", modifiers: [.command, .shift])
+
+                Button(action: { Task { await refreshHierarchy() } }) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut("r", modifiers: .command)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -125,7 +132,7 @@ struct MainView: View {
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 0) {
+                        LazyVStack(alignment: .leading, spacing: 5) {
                             ForEach(flattenedElements) { item in
                                 elementRow(item, proxy: proxy)
                             }
@@ -135,34 +142,6 @@ struct MainView: View {
                     }
                 }
 
-                // Properties
-                if let el = selectedElement {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Divider().opacity(0.2)
-
-                        Text(el.type)
-                            .font(.system(.caption, design: .monospaced))
-                            .fontWeight(.bold)
-
-                        if let label = el.label, !label.isEmpty {
-                            Text(label)
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                        }
-
-                        Text("\(Int(el.frame.x)), \(Int(el.frame.y))  \(Int(el.frame.width))×\(Int(el.frame.height))")
-                            .font(.system(.caption2, design: .monospaced))
-                            .foregroundColor(.secondary.opacity(0.7))
-
-                        if let role = el.role, !role.isEmpty {
-                            Text(role)
-                                .font(.caption2)
-                                .foregroundColor(.secondary.opacity(0.7))
-                        }
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                }
             }
         }
         .overlay(alignment: .bottom) {
@@ -237,26 +216,52 @@ struct MainView: View {
             Spacer()
                 .frame(width: CGFloat(item.depth) * 12)
 
-            Text(item.node.type)
-                .font(.system(.caption, design: .monospaced))
-                .fontWeight(isSelected ? .bold : .regular)
-                .foregroundColor(isSelected ? .white : .primary.opacity(0.85))
-
-            if let label = item.node.label, !label.isEmpty {
-                Text(" ")
-                Text(label)
-                    .font(.caption2)
-                    .foregroundColor(.secondary.opacity(0.6))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.node.type)
+                    .font(.system(size: 14, weight: isSelected ? .bold : .medium, design: .default))
+                    .foregroundColor(.black)
                     .lineLimit(1)
+
+                if let label = item.node.label, !label.isEmpty {
+                    Text(label)
+                        .font(.system(size: 14, weight: .regular, design: .default))
+                        .foregroundColor(.black.opacity(0.5))
+                        .lineLimit(1)
+                }
+
+                if isSelected {
+                    Divider().opacity(0.15).padding(.vertical, 2)
+
+                    Text("\(Int(item.node.frame.x)), \(Int(item.node.frame.y))  \(Int(item.node.frame.width))×\(Int(item.node.frame.height))")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.black.opacity(0.45))
+
+                    if let role = item.node.role, !role.isEmpty {
+                        Text(role)
+                            .font(.system(size: 11))
+                            .foregroundColor(.black.opacity(0.45))
+                    }
+                }
             }
 
             Spacer()
         }
-        .padding(.vertical, 3)
-        .padding(.horizontal, 6)
+        .padding(.vertical, 7)
+        .padding(.horizontal, 10)
         .background(
-            RoundedRectangle(cornerRadius: 4)
-                .fill(isSelected ? Color.accentColor.opacity(0.25) : Color.clear)
+            ZStack {
+                BlurView(material: .popover, cornerRadius: 14)
+                Color.white.opacity(0.06)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(Color.white)
+                }
+            }
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(Color.white.opacity(0.2), lineWidth: 0.5)
         )
         .contentShape(Rectangle())
         .onTapGesture {
